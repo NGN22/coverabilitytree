@@ -1,5 +1,34 @@
 import numpy as np
+from neo4j import GraphDatabase
+from marcas import Marca
 
+class Grafo:
+    def __init__(self, uri, user, password):
+        self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        print("conectado")
+
+
+    def crear_marca(self, tx , marca):
+        tx.run("CREATE (:Nodo {nombre: $nombre , padre: $padre})" ,
+                        nombre=(marca.nombre), padre=(marca.padre))
+
+    def crear_marca_muerta(self, tx, marca):
+        tx.run("CREATE (:Nodo {nombre: $nombre , padre: $padre})",
+               nombre=(marca.nombre), padre=(marca.padre))
+
+
+
+    def crear_relacion_hijo(self, tx, marca):
+        tx.run("MATCH (a:Nodo {nombre: $nombre_nodo}) "
+               "MATCH (b:Nodo {nombre: $nombre_padre}) "
+               "MERGE (a)-[:HIJO]->(b)",
+               nombre_nodo=(marca.nombre), nombre_padre=(marca.padre))
+
+
+
+    def close(self):
+        print("desconectado")
+        self.driver.close()
 
 
 global nodos
@@ -8,9 +37,10 @@ global matrizPrevia
 global marcadores
 global matrizIncidencia
 global allMarcas
+global nodosGrafo
 #imprime en consola matriz nxm
-def print_hi(matriz, nombre):
-    print(f"matriz: {nombre} ")
+def print_hi(matriz):
+    print("matriz:  ")
     for filaIndice in range(transiciones):
         for columnaIndice in range(nodos):
                 print(matriz[filaIndice][columnaIndice], end=" ")
@@ -27,7 +57,7 @@ def matriz_incidencia(matrizInput , matrizOutput ):
             filaLista.append(matrizInput[filaIndice][columnas] - matrizOutput[filaIndice][columnas])
             #print({filaLista[j]})
         matriz.append(filaLista)
-    print_hi(matriz, "incidencia")
+    print_hi(matriz)
     return matriz
 
 #verifica si la marca puede ssegun un vector de transiciones dispararse o no
@@ -59,7 +89,7 @@ def verificarMarcaIgual(marcaNueva):
 
     marca = marcaNueva.flatten().tolist()
     bandera = False
-    #print(f"{bandera} UN CICLO I verificar marca igual {marcaNueva} ")
+    #print(f"{bandera} UN CICLO I ")
     for m in allMarcas:
         #print(f"{type(m)} tipo de m {type(marca)}  tipo de marcanueva" )
         igual = all(marcaNueva == m)
@@ -99,20 +129,18 @@ def marcaInfinita(marcaNueva):
     return any(bandera)
 
 
-
-def crear_marcas(marca0):
+def crear_marcas(marca0, nodoViejo):
     print(f"{marca0} crear marcas Mo= {marca0}")
-
+    hijos = []
     for i in range(transiciones):
         vector_e = llenar_vector()
         vector_e[i]=1
-        #print(f"{vector_e} VECTOR E {i}")
+
         #p cada vector veo rama habilitada
 
         # marcaNuevaes la marca a comprobar si esta en la matriz, si no esta => agregarla
         # si es mayor a una ya existente  => iNF
         if(all(rama_habilitada(marca0, vector_e))):
-            #print(f"RAMA HABILITADA UN CICLO {vector_e} VECTOR E {i}")
 
             marcaNueva = marca_nueva(marca0, vector_e)
             existe = verificarMarcaIgual(marcaNueva)
@@ -123,15 +151,22 @@ def crear_marcas(marca0):
 
                 if not infinito:
                     allMarcas.append(marcaNueva.flatten().tolist())
-                    print(f"MARCA NUEVA NO EXISTE {existe} NO ES INFINITA {marcaNueva}")
-                    crear_marcas(marcaNueva)
+                    nueva = Marca(" ".join(str(x) for x in marcaNueva), nodoViejo.nombre)
+                    print(f"MARCA NUEVA: {nueva.nombre} PADRE {nueva.padre} ")
+                    hijos.append(crear_marcas(marcaNueva, nueva))
+                    nueva.hijos = hijos
+                    nodosGrafo.append(nueva)
+
                 else:
-                    print(f"infinita => tengo que matar la rama {marcaNueva} {infinito} {existe}")
-            #print(f"{marcaNueva} marca nueva - existe: {existe} ")
+
+                    muerta = Marca(" ".join(str(x) for x in marcaNueva), nodoViejo.nombre)
+                    nodosGrafo.append(muerta)
+                    print(f" MARCA INFINITA:  => tengo que matar la rama {marca0} marca nueva {marcaNueva}")
+
 
     print("______Termina Crear Marcas______")
 
-
+    return hijos
 
 
 
@@ -141,23 +176,54 @@ def crear_marcas(marca0):
 
 if __name__ == '__main__':
 
+    grafo = Grafo("bolt://localhost:7687", "neo4j", "arbolmurata")
 
-    nodos = 4
-    transiciones = 3
-    allMarcas =[]
-    matrizPrevia = [[1, 0,0,0], [0, 1,0,0],[0, 1,0,0]]
-    matrizPosterior = [[0, 1,0,0], [0,0,0,1], [0,0,1,0]]
-    marca0 = [5,0,0,0]
+    nodos = 2
+    transiciones = 2
+    allMarcas = []
+    marcasInfinitas = []
+    matrizPrevia = [[1, 0], [0, 1]]
+    matrizPosterior = [[0, 2], [1, 0]]
+    marca0 = [1, 1]
     allMarcas.append(marca0)
+    nodosGrafo = []
+    marcaCe = Marca(" ".join(str(x) for x in marca0), " ")
+    nodosGrafo.append(marcaCe)
 
-
-    print("matrices")
-    print_hi(matrizPrevia, "Previa")
-
-    print_hi(matrizPosterior, "Posterior")
     matrizIncidencia = matriz_incidencia(matrizPosterior, matrizPrevia)
-    crear_marcas(marca0)
-
+    crear_marcas(marca0, marcaCe)
+    #print_hi(allMarcas)
     print(f"{allMarcas} all marcas")
+
+
+    print(f"-------------------Grafo-----------------------------")
+
+
+
+    with grafo.driver.session() as session:
+
+        print("f ---------Creacion script----------")
+        for marca in nodosGrafo:
+
+            if len(marca.padre) == 0:
+                print(f" RAIZ {marca.nombre} {len(marca.hijos)}")
+                session.write_transaction(grafo.crear_marca, marca)
+
+            else:
+                #if (len(marca.hijos) == 0):
+                session.write_transaction(grafo.crear_marca, marca)
+
+                #print(f" MUERTA {marca.nombre} {len(marca.hijos)} ")
+
+                #else:
+                """    session.write_transaction(grafo.crear_marca, marca)
+                    session.write_transaction(grafo.crear_relacion_hijo, marca)
+                    print(f"RELACION {marca.nombre} {len(marca.hijos)}")"""
+
+        for marca in nodosGrafo:
+            session.write_transaction(grafo.crear_relacion_hijo, marca)
+
+
+    grafo.close()
 
 
