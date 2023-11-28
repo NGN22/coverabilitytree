@@ -7,10 +7,12 @@ El proyecto muestra la implementacion de las reglas para la obtencion de todas l
 
 Salida consola:
 El codigo echo en python muestra todas las marcas alcanzables, de la red se tienen que entregar las matrices de entrada y salida . 
+Solo es necesario instalar la libreria [Numpy][https://numpy.org/]
 
 Parte grafica:
 el codico en python se le agrego un adicional de [neo4j](https://neo4j.com/) (base de datos orientada a grafos) que crea un arbol de cobertura visual con todas las marcas encontradas generando una relacion (HIJO) que marca de quien es hijo el nodo dado (caso infinito marca todos los posibles padres) [ejemplo](https://github.com/NGN22/coverabilitytree/blob/master/graph.svg).
 La raiz es el unico nodo sin padre 
+**se tiene que agregar una base de datos local o conexion si se quiere visualizar en neo4j
 
 ## Authors
 
